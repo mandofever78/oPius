@@ -19,8 +19,8 @@ import {
 	type TextContent,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { makeStrictJsonSchema, resolveJsonSchemaStrictSampling } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { BUDGET, EFFORT, MIN_ANSWER_TOKENS, MIN_THINKING_BUDGET, route } from "./catalog.ts";
+import { strictSchema } from "./strict.ts";
 
 /** MCP server name; native exposes its tools as `mcp__pi__<name>`. */
 export const SERVER = "pi";
@@ -138,8 +138,8 @@ export function prepare(model: Model<Api>, context: TranscriptContext, options: 
 		if (toolNames.has(tool.name)) throw new Error(`Duplicate tool name ${tool.name}`);
 		toolNames.add(tool.name);
 		// Tools that ask for constrained sampling (pi's bash, write) get strict schemas, as with pi's own Anthropic provider.
-		const strict = resolveJsonSchemaStrictSampling(tool, true) === true;
-		const schema = strict ? (makeStrictJsonSchema(tool.parameters) as Record<string, unknown>) : normalizeSchema(tool.parameters);
+		const strict = strictSchema(tool);
+		const schema = strict ?? normalizeSchema(tool.parameters);
 		// The inert manifest and the request body must advertise the same shape.
 		manifest.push({ name: tool.name, description: tool.description, inputSchema: schema });
 		tools.push({ name: PREFIX + tool.name, description: tool.description, ...(strict && { strict: true }), input_schema: schema });

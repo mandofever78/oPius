@@ -1,6 +1,6 @@
 {
   "name": "opius",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "pi provider extension: Claude Pro/Max subscription through the official Claude Code CLI",
   "type": "module",
   "license": "MIT",
