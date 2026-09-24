@@ -6,7 +6,7 @@
 
 Pi + Claude Pro/Max Subscriptions on the official Claude Code CLI. Pi keeps its own agent loop, tools, approvals, and compaction.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![pi](https://img.shields.io/badge/pi-%E2%89%A5%200.87.1-8A2BE2)](https://github.com/earendil-works/pi) [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.280-D97757)](https://www.npmjs.com/package/@anthropic-ai/claude-code) [![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.19-339933)](https://nodejs.org)
+[![CI](https://github.com/mandofever78/oPius/actions/workflows/ci.yml/badge.svg)](https://github.com/mandofever78/oPius/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/opius)](https://www.npmjs.com/package/opius) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![pi](https://img.shields.io/badge/pi-%E2%89%A5%200.87.1-8A2BE2)](https://github.com/earendil-works/pi) [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.280-D97757)](https://www.npmjs.com/package/@anthropic-ai/claude-code) [![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.19-339933)](https://nodejs.org)
 
 </div>
 
@@ -177,6 +177,8 @@ sequenceDiagram
 
 > [!WARNING]
 > `CLAUDE_SUBSCRIPTION_AUDIT_DIR` writes every outbound request body, including your full prompts, to disk (mode `0600`). Use it only for debugging, and delete the files afterwards.
+
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## Configuration
 
