@@ -32,10 +32,10 @@ Propose a semver bump from the changes: patch for fixes, minor for features or n
    D=$(mktemp -d) && npm pack -q --pack-destination "$D" >/dev/null && tar xzf "$D"/opius-*.tgz -C "$D"
    (cd "$D" && pi -ne -e "$D/package" --list-models claude-subscription)
    ```
-   All six models listed.
+   All seven models listed.
 3. Offer the live run (uses a little subscription allowance): `node test/live.ts`. Run it when the change touches `src/stream.ts`, `src/relay.ts` or `src/history.ts`.
 
-**Gate:** tests green, all six models listed from the tarball, and the live run passed or the user skipped it.
+**Gate:** tests green, all seven models listed from the tarball, and the live run passed or the user skipped it.
 
 ## 4. Bump and push
 
