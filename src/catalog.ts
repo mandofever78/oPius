@@ -32,6 +32,7 @@ export const ROUTES: readonly Route[] = [
 	{ id: "claude-sonnet-5", name: "Sonnet 5", contextWindow: 1_000_000, maxTokens: 128_000, cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }, adaptive: true, alwaysThinks: false },
 	{ id: "claude-opus-5", name: "Opus 5", contextWindow: 1_000_000, maxTokens: 128_000, cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }, adaptive: true, alwaysThinks: true },
 	{ id: "claude-opus-4-8", name: "Opus 4.8", contextWindow: 1_000_000, maxTokens: 128_000, cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }, adaptive: true, alwaysThinks: false },
+	{ id: "claude-fable-5-2", name: "Fable 5.2", contextWindow: 1_000_000, maxTokens: 128_000, cost: { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 }, adaptive: true, alwaysThinks: true },
 	{ id: "claude-fable-5-1", name: "Fable 5.1", contextWindow: 1_000_000, maxTokens: 128_000, cost: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 }, adaptive: true, alwaysThinks: true, creditsBelowMax: true },
 	{ id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", contextWindow: 200_000, maxTokens: 64_000, cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }, adaptive: false, alwaysThinks: false },
 ];
@@ -41,7 +42,7 @@ const ALIASES: Readonly<Record<string, string>> = {
 	haiku: "claude-haiku-4-5-20251001",
 	"claude-haiku-4-5": "claude-haiku-4-5-20251001",
 	opus: "claude-opus-5-5",
-	fable: "claude-fable-5-1",
+	fable: "claude-fable-5-2",
 };
 
 export function route(model: string): Route | undefined {

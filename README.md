@@ -124,6 +124,7 @@ pi --list-models claude-subscription
 | `claude-sonnet-5` | 1M | ✓ |
 | `claude-opus-5` | 1M | always thinks |
 | `claude-opus-4-8` | 1M | ✓ |
+| `claude-fable-5-2` | 1M | always thinks |
 | `claude-fable-5-1` | 1M | always thinks |
 | `claude-haiku-4-5-20251001` | 200K | ✓ |
 
