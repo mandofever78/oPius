@@ -50,8 +50,9 @@ Propose a semver bump from the changes: patch for fixes, minor for features or n
 
 1. Draft release notes from `git log <last-tag>..HEAD`: user-facing changes only, a few bullets. Show them to the user.
 2. After approval: `gh release create vX.Y.Z --target <release-commit-sha> --title "oPius vX.Y.Z" --notes-file <notes>`.
-3. The `Publish` workflow runs on the release: it checks the tag matches `package.json`, re-runs check and tests, and publishes with provenance through npm trusted publishing. Watch it: `gh run watch <id> --exit-status`.
-4. If the publish step fails on authentication, trusted publishing is not configured on npmjs.com. The user either configures it (package Settings → Trusted Publisher: GitHub Actions, `mandofever78/oPius`, `publish.yml`) and re-runs the workflow, or runs `npm publish --access public` locally.
+3. The `Publish` workflow runs on the release: it checks the tag matches `package.json`, re-runs check and tests, and stages the version with provenance (`npm stage publish`) through npm trusted publishing. Watch it: `gh run watch <id> --exit-status`.
+4. A staged version is not public yet. The user approves it with 2FA: `npm stage list opius` for the stage id, then `npm stage approve <stage-id>` (or on npmjs.com). Approval is the user's 2FA step; never attempt it for them.
+5. If the stage step fails on authentication, trusted publishing is not configured on npmjs.com. The user configures it (package Settings → Trusted Publisher: GitHub Actions, `mandofever78/oPius`, `publish.yml`, no environment, staged publishing only) and re-runs the workflow. A re-run uses the workflow file at the release tag, so a workflow fix needs a new tag.
 
 **Gate:** `npm view opius@X.Y.Z version --prefer-online` prints the version, and `dist-tags.latest` is `X.Y.Z`. npm's metadata cache lags by up to a few minutes, so always pass `--prefer-online` and retry before concluding anything is missing.
 
