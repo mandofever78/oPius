@@ -2,7 +2,8 @@
  * Live qualification against the real subscription (costs a little allowance):
  *   node test/live.ts [model]
  * Two calls: a tool round and its follow-up, sent as native builds them plus the relay's history breakpoint.
- * Asserts one upstream request per call and prints the upstream outcome verbatim.
+ * Asserts one upstream request per call, no account email forwarded, and prints the upstream outcome verbatim.
+ * Re-run after each Claude Code update and before each release.
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
@@ -42,6 +43,8 @@ assert.equal(second.stopReason, "stop", second.errorMessage ?? "");
 const bodies = readdirSync(audit).map((f) => readFileSync(join(audit, f), "utf8"));
 assert.equal(bodies.length, 2, "exactly one upstream request per call");
 assert.ok(bodies.every((b) => b.includes("You are pi")), "system prompt forwarded unchanged");
+// Fails when native rewords its context reminder and the relay's filter stops matching.
+assert.ok(bodies.every((b) => !b.includes("userEmail")), "account email never forwarded");
 const followUp = JSON.parse(bodies[1]).messages.findLast((m: any) => m.role === "assistant");
 assert.ok(followUp.content.at(-1).cache_control, "history breakpoint on the last assistant block");
 console.log(`PASS: 2 calls, 2 upstream requests, history breakpoint added (audit: ${audit})`);
