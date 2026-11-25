@@ -214,3 +214,14 @@ test("user text starting with a slash reaches the model instead of native's comm
 	const sent = JSON.parse(upstream.bodies[0]);
 	assert.deepEqual(sent.messages[0].content.map((b: any) => b.text), ["\n/status", "\n/cost now"]);
 });
+
+test("native's account-email reminder never reaches the model", async () => {
+	const first = await run({ events: toolAnswer("mcp__pi__pi_echo", { pi_text: "hi" }) }, [user("echo")]);
+	const history: Message[] = [user("echo"), first.message, { role: "toolResult", toolCallId: "toolu_1", toolName: "pi_echo", content: [{ type: "text", text: "done by pi" }], isError: false, timestamp: 2 }];
+	const second = await run({ events: textAnswer("ok") }, history);
+	for (const body of [first.upstream.bodies[0], second.upstream.bodies[0]]) {
+		assert.doesNotMatch(body, /user@example\.com|userEmail/);
+	}
+	assert.deepEqual(JSON.parse(first.upstream.bodies[0]).messages[0].content, [{ type: "text", text: "echo" }]);
+	assert.deepEqual(JSON.parse(second.upstream.bodies[0]).messages[2].content[0].content, [{ type: "text", text: "done by pi" }]);
+});

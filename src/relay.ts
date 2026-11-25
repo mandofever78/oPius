@@ -5,6 +5,7 @@
  *   attempts after it are refused locally, so one pi call is exactly one upstream request.
  * - Inventory: an inert MCP endpoint lists pi's tools so native recognizes them; calls to it are
  *   denied, because only pi executes tools.
+ * - Privacy: native's account-email context reminder is removed from the admitted body.
  * - Caching: the admitted body gains one history cache breakpoint (`addHistoryBreakpoint`) and is
  *   otherwise forwarded as Claude Code builds it.
  *
@@ -28,21 +29,82 @@ const MAX_BREAKPOINTS = 4;
  * read everything up to it. Anything unexpected passes through untouched.
  */
 export function addHistoryBreakpoint(body: Buffer): Buffer {
+	return rewrite(body, markHistory);
+}
+
+/** Parse, apply each edit, and re-serialize only when one changed something. */
+function rewrite(body: Buffer, ...edits: ((request: any) => boolean)[]): Buffer {
 	let request: any;
 	try {
 		request = JSON.parse(body.toString("utf8"));
 	} catch {
 		return body;
 	}
-	const blocks = (list: unknown): any[] => (Array.isArray(list) ? list.filter((b) => b && typeof b === "object") : []);
+	let changed = false;
+	for (const edit of edits) changed = edit(request) || changed;
+	return changed ? Buffer.from(JSON.stringify(request), "utf8") : body;
+}
+
+const blocks = (list: unknown): any[] => (Array.isArray(list) ? list.filter((b) => b && typeof b === "object") : []);
+
+const CONTEXT_HEAD = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n";
+const CONTEXT_TAIL = /Claude Code attached this context automatically;[^\n]*\n<\/system-reminder>\n?$/;
+
+/**
+ * Removes the `# userEmail` section from a native context reminder; the whole block goes when
+ * nothing else is left. `undefined` means the block is not native's context reminder.
+ */
+function withoutEmail(text: string): string | null | undefined {
+	if (!text.startsWith(CONTEXT_HEAD) || !CONTEXT_TAIL.test(text)) return undefined;
+	const sections = text.slice(CONTEXT_HEAD.length).replace(CONTEXT_TAIL, "").split(/(?=^# )/m);
+	const kept = sections.filter((s) => !s.startsWith("# userEmail\n"));
+	if (kept.length === sections.length) return undefined;
+	if (!kept.join("").trim()) return null;
+	return CONTEXT_HEAD + kept.join("") + text.match(CONTEXT_TAIL)![0];
+}
+
+/**
+ * Claude Code attaches the account email as a context reminder: ahead of the first user text, or
+ * after the last tool result. pi never asked for it, and the model repeats it into transcripts.
+ * Only those two positions are checked, so reminders the user wrote themselves pass untouched.
+ */
+function dropAccountEmail(request: any): boolean {
+	const messages = blocks(request?.messages);
+	const first = messages.find((m) => m.role === "user");
+	const last = messages.findLast((m) => m.role === "user");
+	const slots: any[][] = [];
+	if (first && Array.isArray(first.content)) slots.push(first.content);
+	for (const b of blocks(last?.content)) if (b.type === "tool_result" && Array.isArray(b.content)) slots.push(b.content);
+	let changed = false;
+	for (const list of slots) {
+		for (const index of [0, list.length - 1]) {
+			const block = list[index];
+			if (block?.type !== "text" || typeof block.text !== "string" || list.length < 2) continue;
+			const text = withoutEmail(block.text);
+			if (text === undefined) continue;
+			if (text === null) list.splice(index, 1);
+			else block.text = text;
+			changed = true;
+			break;
+		}
+	}
+	return changed;
+}
+
+/** The admitted body as forwarded: account email removed, history breakpoint added. */
+export function prepareBody(body: Buffer): Buffer {
+	return rewrite(body, dropAccountEmail, markHistory);
+}
+
+function markHistory(request: any): boolean {
 	const messages = blocks(request?.messages);
 	const content = messages.flatMap((m) => blocks(m.content));
 	const all = [...blocks(request?.system), ...blocks(request?.tools), ...content, ...content.flatMap((b) => blocks(b.content))];
-	if (all.filter((b) => b.cache_control).length >= MAX_BREAKPOINTS) return body;
+	if (all.filter((b) => b.cache_control).length >= MAX_BREAKPOINTS) return false;
 	const last = blocks(messages.findLast((m) => m.role === "assistant")?.content).findLast((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
-	if (!last || last.cache_control) return body;
+	if (!last || last.cache_control) return false;
 	last.cache_control = { type: "ephemeral", ttl: "1h" };
-	return Buffer.from(JSON.stringify(request), "utf8");
+	return true;
 }
 
 const HOP = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "proxy-connection", "accept-encoding", "keep-alive"]);
@@ -196,7 +258,7 @@ export class Relay {
 			return deny(res, "PI_MODEL_ADMISSION_CONSUMED");
 		}
 		this.used = true;
-		const payload = addHistoryBreakpoint(body);
+		const payload = prepareBody(body);
 		this.options.onForward?.(payload);
 		this.forward(req, path.search, payload, res);
 	}

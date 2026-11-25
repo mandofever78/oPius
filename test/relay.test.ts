@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { addHistoryBreakpoint, Relay, type SseEvent } from "../src/relay.ts";
+import { addHistoryBreakpoint, prepareBody, Relay, type SseEvent } from "../src/relay.ts";
 import { textAnswer } from "./fixtures/upstream.ts";
 
 /** Upstream that writes `body` verbatim as its SSE answer. */
@@ -101,4 +101,23 @@ test("invalid JSON and bodies without an assistant turn pass through", () => {
 	assert.equal(addHistoryBreakpoint(invalid), invalid);
 	const first = Buffer.from(JSON.stringify({ messages: [{ role: "user", content: "hi" }] }));
 	assert.equal(addHistoryBreakpoint(first), first);
+});
+
+const CONTEXT_HEAD = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n";
+const CONTEXT_TAIL = "Claude Code attached this context automatically; it isn't part of the user's message.\n</system-reminder>";
+const EMAIL = "# userEmail\nThe user's email address is user@example.com. Treat it as private.\n\n";
+
+test("native's userEmail context is removed; other context and user-written reminders stay", () => {
+	const userWritten = { type: "text", text: "<system-reminder>\n# userEmail\nmine\n</system-reminder>" };
+	const request = {
+		messages: [
+			{ role: "user", content: [{ type: "text", text: `${CONTEXT_HEAD}${EMAIL}${CONTEXT_TAIL}\n` }, userWritten] },
+			{ role: "assistant", content: [{ type: "tool_use", id: "t1", name: "x", input: {} }] },
+			{ role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "r" }, { type: "text", text: `${CONTEXT_HEAD}# other\nkeep\n\n${EMAIL}${CONTEXT_TAIL}` }] }] },
+		],
+	};
+	const sent = JSON.parse(prepareBody(Buffer.from(JSON.stringify(request))).toString("utf8"));
+	assert.doesNotMatch(JSON.stringify(sent), /user@example\.com/);
+	assert.deepEqual(sent.messages[0].content, [userWritten]);
+	assert.deepEqual(sent.messages[2].content[0].content, [{ type: "text", text: "r" }, { type: "text", text: `${CONTEXT_HEAD}# other\nkeep\n\n${CONTEXT_TAIL}` }]);
 });
