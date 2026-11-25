@@ -64,16 +64,17 @@ function withoutEmail(text: string): string | null | undefined {
 }
 
 /**
- * Claude Code attaches the account email as a context reminder: ahead of the first user text, or
- * after the last tool result. pi never asked for it, and the model repeats it into transcripts.
- * Only those two positions are checked, so reminders the user wrote themselves pass untouched.
+ * Claude Code attaches the account email as a context reminder to the latest user turn: after its
+ * last tool result, or ahead of its text. pi never asked for it, and the model repeats it into
+ * transcripts. Only those positions (and the first user turn) are checked, so reminders the user
+ * wrote themselves pass untouched.
  */
 function dropAccountEmail(request: any): boolean {
 	const messages = blocks(request?.messages);
 	const first = messages.find((m) => m.role === "user");
 	const last = messages.findLast((m) => m.role === "user");
 	const slots: any[][] = [];
-	if (first && Array.isArray(first.content)) slots.push(first.content);
+	for (const m of new Set([first, last])) if (Array.isArray(m?.content)) slots.push(m.content);
 	for (const b of blocks(last?.content)) if (b.type === "tool_result" && Array.isArray(b.content)) slots.push(b.content);
 	let changed = false;
 	for (const list of slots) {

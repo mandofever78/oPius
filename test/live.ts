@@ -1,7 +1,7 @@
 /**
  * Live qualification against the real subscription (costs a little allowance):
  *   node test/live.ts [model]
- * Two calls: a tool round and its follow-up, sent as native builds them plus the relay's history breakpoint.
+ * Three calls: a tool round, its follow-up, and a plain user follow-up, sent as native builds them plus the relay's history breakpoint.
  * Asserts one upstream request per call, no account email forwarded, and prints the upstream outcome verbatim.
  * Re-run after each Claude Code update and before each release.
  */
@@ -39,12 +39,15 @@ assert.equal(tc.name, "pi_echo");
 assert.ok("pi_text" in tc.arguments, "schema key restored");
 const second = await call([user, first, { role: "toolResult", toolCallId: tc.id, toolName: "pi_echo", content: [{ type: "text", text: "echoed by pi: OK" }], isError: false, timestamp: Date.now() }], "low");
 assert.equal(second.stopReason, "stop", second.errorMessage ?? "");
+// A plain follow-up: native attaches its context reminder to the latest user turn.
+const third = await call([user, first, { role: "toolResult", toolCallId: tc.id, toolName: "pi_echo", content: [{ type: "text", text: "echoed by pi: OK" }], isError: false, timestamp: Date.now() }, second, { role: "user", content: "Reply with one word: thanks", timestamp: Date.now() }]);
+assert.equal(third.stopReason, "stop", third.errorMessage ?? "");
 
-const bodies = readdirSync(audit).map((f) => readFileSync(join(audit, f), "utf8"));
-assert.equal(bodies.length, 2, "exactly one upstream request per call");
+const bodies = readdirSync(audit).sort().map((f) => readFileSync(join(audit, f), "utf8"));
+assert.equal(bodies.length, 3, "exactly one upstream request per call");
 assert.ok(bodies.every((b) => b.includes("You are pi")), "system prompt forwarded unchanged");
 // Fails when native rewords its context reminder and the relay's filter stops matching.
 assert.ok(bodies.every((b) => !b.includes("userEmail")), "account email never forwarded");
 const followUp = JSON.parse(bodies[1]).messages.findLast((m: any) => m.role === "assistant");
 assert.ok(followUp.content.at(-1).cache_control, "history breakpoint on the last assistant block");
-console.log(`PASS: 2 calls, 2 upstream requests, history breakpoint added (audit: ${audit})`);
+console.log(`PASS: 3 calls, 3 upstream requests, no account email, history breakpoint added (audit: ${audit})`);

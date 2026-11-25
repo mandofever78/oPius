@@ -225,3 +225,12 @@ test("native's account-email reminder never reaches the model", async () => {
 	assert.deepEqual(JSON.parse(first.upstream.bodies[0]).messages[0].content, [{ type: "text", text: "echo" }]);
 	assert.deepEqual(JSON.parse(second.upstream.bodies[0]).messages[2].content[0].content, [{ type: "text", text: "done by pi" }]);
 });
+
+test("account-email reminder is removed from a plain follow-up, not only the first turn", async () => {
+	const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+	const answer: AssistantMessage = { role: "assistant", content: [{ type: "text", text: "hello" }], api: API, provider: PROVIDER, model: model.id, usage: zero, stopReason: "stop", timestamp: 2 };
+	const { upstream } = await run({ events: textAnswer("ok") }, [user("first"), answer, user("second")]);
+	const body = upstream.bodies[0];
+	assert.doesNotMatch(body, /user@example\.com|userEmail/);
+	assert.deepEqual(JSON.parse(body).messages.at(-1).content, [{ type: "text", text: "second" }]);
+});

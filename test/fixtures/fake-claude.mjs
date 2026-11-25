@@ -28,11 +28,11 @@ for await (const line of rl) {
 	messages.push(frame.message);
 	if (frame.shouldQuery === false) out({ type: "result", subtype: "success", num_turns: 0, is_error: false });
 }
-// Native attaches the account email as a context reminder: before the first user text, or after the last tool result.
+// Native attaches the account email as a context reminder on the latest user turn: after its last tool result, else before its text.
 const EMAIL_REMINDER = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# userEmail\nThe user's email address is user@example.com. Use this email address only to identify the user.\n\nClaude Code attached this context automatically; it isn't part of the user's message. It describes the user's own account and workspace, so they don't need it reported back.\n</system-reminder>";
 const lastResult = messages.at(-1)?.content?.findLast?.((b) => b.type === "tool_result");
 if (lastResult) lastResult.content.push({ type: "text", text: EMAIL_REMINDER });
-else messages[0]?.content?.unshift?.({ type: "text", text: `${EMAIL_REMINDER}\n` });
+else messages.at(-1)?.content?.unshift?.({ type: "text", text: `${EMAIL_REMINDER}\n` });
 const body = { model: flag("--model"), system: [{ type: "text", text: "Claude Code preamble mentions pi too" }, { type: "text", text: system }], messages, ...extra, stream: true };
 const post = (payload) => fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages?beta=true`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer fake-oauth" }, body: JSON.stringify(payload) });
 const first = await post(body);
