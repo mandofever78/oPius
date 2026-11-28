@@ -234,3 +234,29 @@ test("account-email reminder is removed from a plain follow-up, not only the fir
 	assert.doesNotMatch(body, /user@example\.com|userEmail/);
 	assert.deepEqual(JSON.parse(body).messages.at(-1).content, [{ type: "text", text: "second" }]);
 });
+
+const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+const reply = (text: string): AssistantMessage => ({ role: "assistant", content: [{ type: "text", text }], api: API, provider: PROVIDER, model: model.id, usage: zeroUsage, stopReason: "stop", timestamp: 2 });
+const historyMark = async (options: Record<string, unknown>) => {
+	const { message, upstream } = await run({ events: textAnswer("ok") }, [user("first"), reply("hello"), user("second")], options);
+	assert.equal(message.stopReason, "stop", message.errorMessage ?? "");
+	return JSON.parse(upstream.bodies[0]).messages[1].content[0].cache_control;
+};
+
+test("cacheRetention picks the history breakpoint per call; unset keeps 1h", async () => {
+	assert.deepEqual(await historyMark({}), { type: "ephemeral", ttl: "1h" });
+	assert.equal(await historyMark({ cacheRetention: "none" }), undefined);
+	assert.deepEqual(await historyMark({ cacheRetention: "short" }), { type: "ephemeral" });
+	assert.deepEqual(await historyMark({ cacheRetention: "long" }), { type: "ephemeral", ttl: "1h" });
+});
+
+test("CLAUDE_SUBSCRIPTION_CACHE_TTL sets the default; cacheRetention still wins", async () => {
+	assert.deepEqual(await historyMark({ env: { CLAUDE_SUBSCRIPTION_CACHE_TTL: "5m" } }), { type: "ephemeral" });
+	assert.equal(await historyMark({ env: { CLAUDE_SUBSCRIPTION_CACHE_TTL: "none" } }), undefined);
+	assert.deepEqual(await historyMark({ cacheRetention: "long", env: { CLAUDE_SUBSCRIPTION_CACHE_TTL: "none" } }), { type: "ephemeral", ttl: "1h" });
+});
+
+test("concurrent calls with different retention do not cross", async () => {
+	const marks = await Promise.all([historyMark({ cacheRetention: "none" }), historyMark({ cacheRetention: "long" }), historyMark({ cacheRetention: "short" })]);
+	assert.deepEqual(marks, [undefined, { type: "ephemeral", ttl: "1h" }, { type: "ephemeral" }]);
+});

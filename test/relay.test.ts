@@ -96,6 +96,35 @@ test("a body already at four cache breakpoints is forwarded byte for byte", () =
 	assert.equal(addHistoryBreakpoint(body), body);
 });
 
+const history = () => ({
+	system: [{ type: "text", text: "s", cache_control: EPHEMERAL }],
+	messages: [
+		{ role: "user", content: [{ type: "text", text: "a" }] },
+		{ role: "assistant", content: [{ type: "text", text: "b" }] },
+		{ role: "user", content: [{ type: "text", text: "c" }] },
+		{ role: "system", content: [{ type: "text", text: "reminder", cache_control: EPHEMERAL }] },
+	],
+});
+const prepared = (request: object, ttl?: "none" | "5m" | "1h") => prepareBody(Buffer.from(JSON.stringify(request)), ttl);
+
+test("ttl none adds no history breakpoint and forwards the body byte for byte", () => {
+	const body = Buffer.from(JSON.stringify(history()));
+	assert.equal(prepareBody(body, "none"), body);
+});
+
+test("ttl 1h is the default and matches today's breakpoint", () => {
+	assert.deepEqual(prepared(history(), "1h"), prepared(history()));
+	assert.deepEqual(JSON.parse(prepared(history()).toString("utf8")).messages[1].content[0].cache_control, EPHEMERAL);
+});
+
+test("ttl 5m marks history with the API's default lifetime and keeps every breakpoint at 5m", () => {
+	const sent = JSON.parse(prepared(history(), "5m").toString("utf8"));
+	assert.deepEqual(sent.messages[1].content[0].cache_control, { type: "ephemeral" });
+	// A 1h entry after a 5m one is rejected upstream, so native's own markers drop to 5m too.
+	assert.deepEqual(sent.system[0].cache_control, { type: "ephemeral" });
+	assert.deepEqual(sent.messages[3].content[0].cache_control, { type: "ephemeral" });
+});
+
 test("invalid JSON and bodies without an assistant turn pass through", () => {
 	const invalid = Buffer.from("{not json");
 	assert.equal(addHistoryBreakpoint(invalid), invalid);

@@ -92,16 +92,39 @@ function dropAccountEmail(request: any): boolean {
 	return changed;
 }
 
-/** The admitted body as forwarded: account email removed, history breakpoint added. */
-export function prepareBody(body: Buffer): Buffer {
+/** History cache lifetime: `none` adds no breakpoint, `5m` is the API default, `1h` costs 2x to write. */
+export type CacheTtl = "none" | "5m" | "1h";
+
+/** The admitted body as forwarded: account email removed, history breakpoint added at `ttl`. */
+export function prepareBody(body: Buffer, ttl: CacheTtl = "1h"): Buffer {
+	if (ttl === "none") return rewrite(body, dropAccountEmail);
+	if (ttl === "5m") return rewrite(body, dropAccountEmail, markHistory, shortenMarkers);
 	return rewrite(body, dropAccountEmail, markHistory);
+}
+
+const markers = (request: any): any[] => {
+	const messages = blocks(request?.messages);
+	const content = messages.flatMap((m) => blocks(m.content));
+	return [...blocks(request?.system), ...blocks(request?.tools), ...content, ...content.flatMap((b) => blocks(b.content))].filter((b) => b.cache_control);
+};
+
+/**
+ * The API rejects a 1h entry after a 5m one, and native marks its own blocks 1h; every marker drops
+ * to the 5m default so the short history breakpoint stays valid.
+ */
+function shortenMarkers(request: any): boolean {
+	let changed = false;
+	for (const b of markers(request)) {
+		if (b.cache_control.ttl === undefined) continue;
+		delete b.cache_control.ttl;
+		changed = true;
+	}
+	return changed;
 }
 
 function markHistory(request: any): boolean {
 	const messages = blocks(request?.messages);
-	const content = messages.flatMap((m) => blocks(m.content));
-	const all = [...blocks(request?.system), ...blocks(request?.tools), ...content, ...content.flatMap((b) => blocks(b.content))];
-	if (all.filter((b) => b.cache_control).length >= MAX_BREAKPOINTS) return false;
+	if (markers(request).length >= MAX_BREAKPOINTS) return false;
 	const last = blocks(messages.findLast((m) => m.role === "assistant")?.content).findLast((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
 	if (!last || last.cache_control) return false;
 	last.cache_control = { type: "ephemeral", ttl: "1h" };
@@ -163,6 +186,8 @@ interface RelayOptions {
 	onEvent?: (event: SseEvent) => void;
 	/** Sees the exact bytes about to be sent upstream (audits and tests). */
 	onForward?: (body: Buffer) => void;
+	/** History breakpoint lifetime for this relay's single request (default `1h`). */
+	cacheTtl?: CacheTtl;
 }
 
 export class Relay {
@@ -259,7 +284,7 @@ export class Relay {
 			return deny(res, "PI_MODEL_ADMISSION_CONSUMED");
 		}
 		this.used = true;
-		const payload = prepareBody(body);
+		const payload = prepareBody(body, this.options.cacheTtl);
 		this.options.onForward?.(payload);
 		this.forward(req, path.search, payload, res);
 	}

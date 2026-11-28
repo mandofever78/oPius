@@ -27,9 +27,20 @@ import {
 import { nativeModel } from "./catalog.ts";
 import { PREFIX, prepare, SERVER } from "./history.ts";
 import { BASE_ARGS, childEnv, INSTALL_HINT, killTree, resolveClaude, spawnNative, workDir } from "./native.ts";
-import { Relay, type SseEvent } from "./relay.ts";
+import { type CacheTtl, Relay, type SseEvent } from "./relay.ts";
 
 const DEFAULT_IDLE_MS = 180_000;
+
+const RETENTION: Readonly<Record<string, CacheTtl>> = { none: "none", short: "5m", long: "1h" };
+const TTLS: readonly string[] = ["none", "5m", "1h"];
+
+/** pi's `cacheRetention` per call, else CLAUDE_SUBSCRIPTION_CACHE_TTL, else 1h. Unknown values fall back. */
+function cacheTtl(options: SimpleStreamOptions, env: Record<string, string | undefined>): CacheTtl {
+	const chosen = options.cacheRetention && RETENTION[options.cacheRetention];
+	if (chosen) return chosen;
+	const fromEnv = env.CLAUDE_SUBSCRIPTION_CACHE_TTL;
+	return fromEnv && TTLS.includes(fromEnv) ? (fromEnv as CacheTtl) : "1h";
+}
 
 type Live = (TextContent | ThinkingContent | (ToolCall & { partialJson?: string })) & { index?: number };
 
@@ -227,6 +238,7 @@ async function run(model: Model<Api>, context: TranscriptContext, options: Simpl
 		upstream: env.CLAUDE_SUBSCRIPTION_UPSTREAM,
 		timeoutMs: idleMs,
 		tools: prepared.manifest,
+		cacheTtl: cacheTtl(options, env),
 		// Debug only: CLAUDE_SUBSCRIPTION_AUDIT_DIR keeps the exact outbound bodies (full prompts) on disk.
 		onForward: audit
 			? (body) => {
