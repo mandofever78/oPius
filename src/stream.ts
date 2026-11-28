@@ -242,11 +242,11 @@ function minimalOutput({ extraBody }: Prepared): Pick<Prepared, "extraBody" | "m
 /** Generation fields and output cap for the request, replacing what `prepare` derived. */
 type OutputOverride = (prepared: Prepared) => Pick<Prepared, "extraBody" | "maxTokens">;
 
-/** `options.onPayload`, with a throw or rejection read as "no replacement". */
-function payloadHook(options: SimpleStreamOptions, model: Model<Api>, payload: () => unknown): Promise<unknown> {
-	return Promise.resolve()
+/** Read-only `options.onPayload` call for metering; a throw or rejection is ignored. */
+function meterPayload(options: SimpleStreamOptions, model: Model<Api>, payload: () => unknown): void {
+	Promise.resolve()
 		.then(() => options.onPayload?.(payload(), model))
-		.catch(() => undefined);
+		.catch(() => {});
 }
 
 async function run(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions, stream: AssistantMessageEventStream, output: AssistantMessage, override?: OutputOverride): Promise<void> {
@@ -256,8 +256,8 @@ async function run(model: Model<Api>, context: TranscriptContext, options: Simpl
 	let extraBody = prepared.extraBody;
 
 	// Instrumentation hook shared with built-in providers: inspect or replace the generation fields.
-	// A throwing hook is ignored; the forwarded body is reported again, read-only, from the relay.
-	const replaced = await payloadHook(options, model, () => JSON.parse(extraBody));
+	// A throwing hook fails the call; the forwarded body is reported again, read-only, from the relay.
+	const replaced = await options.onPayload?.(JSON.parse(extraBody), model);
 	if (replaced !== undefined) extraBody = JSON.stringify(replaced);
 
 	const env = { ...process.env, ...(options.env ?? {}) };
@@ -277,7 +277,7 @@ async function run(model: Model<Api>, context: TranscriptContext, options: Simpl
 		cacheTtl: cacheTtl(options, env),
 		onForward: (body) => {
 			// Metering: the body exactly as forwarded. Read-only; a returned replacement is ignored.
-			if (options.onPayload) void payloadHook(options, model, () => JSON.parse(body.toString("utf8")));
+			if (options.onPayload) meterPayload(options, model, () => JSON.parse(body.toString("utf8")));
 			// Debug only: CLAUDE_SUBSCRIPTION_AUDIT_DIR keeps the exact outbound bodies (full prompts) on disk.
 			if (audit) {
 				const file = join(audit, `request-${Date.now()}-${process.pid}.json`);

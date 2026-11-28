@@ -276,13 +276,25 @@ test("onPayload sees the body as forwarded upstream, after relay rewrites", asyn
 	assert.doesNotMatch(JSON.stringify(payloads), /user@example\.com/);
 });
 
-test("onPayload cannot replace the forwarded body, and its errors never fail the call", async () => {
+test("onPayload cannot replace the forwarded body, and its metering errors never fail the call", async () => {
 	const replacing = await run({ events: textAnswer("ok") }, [user("a")], { onPayload: (p: any) => (p.messages ? { model: "other", messages: [] } : undefined) });
 	assert.equal(replacing.message.stopReason, "stop", replacing.message.errorMessage ?? "");
 	assert.equal(JSON.parse(replacing.upstream.bodies[0]).messages[0].content[0].text, "a");
-	for (const onPayload of [() => { throw new Error("meter down"); }, async () => { throw new Error("meter down"); }]) {
+	const meterDown = (p: any) => {
+		if (p.messages) throw new Error("meter down");
+	};
+	for (const onPayload of [meterDown, async (p: any) => meterDown(p)]) {
 		const { message } = await run({ events: textAnswer("ok") }, [user("a")], { onPayload });
 		assert.equal(message.stopReason, "stop", message.errorMessage ?? "");
+	}
+});
+
+test("a throwing onPayload on the generation fields fails the call, as before", async () => {
+	for (const onPayload of [() => { throw new Error("hook broke"); }, async () => { throw new Error("hook broke"); }]) {
+		const { message, upstream } = await run({ events: textAnswer("ok") }, [user("a")], { onPayload });
+		assert.equal(message.stopReason, "error");
+		assert.match(message.errorMessage ?? "", /hook broke/);
+		assert.equal(upstream.bodies.length, 0);
 	}
 });
 

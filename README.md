@@ -203,7 +203,7 @@ For hosts that call `streamSimple` directly. Import `streamClaudeCode` and `keep
 | --- | --- |
 | `cacheRetention` option | Per call: `none` adds no history breakpoint, `short` uses the API's 5-minute default, `long` uses 1 h. Overrides `CLAUDE_SUBSCRIPTION_CACHE_TTL`. With `5m`, Claude Code's own 1 h markers after the history breakpoint drop to 5 min, since the API rejects a 1 h entry after a 5 min one; its markers on the system prompt and tools keep 1 h. |
 | `keepWarm(model, context, options)` | Sends the next call's cached prefix with `max_tokens: 1` and resolves to the short answer; its `usage` is the cost. Pass the same options as the next real call (thinking, tools, `cacheRetention`). Mostly cache read; a transcript ending in an assistant turn also writes that turn once. With fixed-budget thinking (Haiku 4.5 with `reasoning` set) the cap is the budget + 1, so a ping can spend the whole thinking budget in output; dropping thinking would change the cache key instead. oPius runs no timers: schedule it yourself inside the TTL. |
-| `onPayload` option | Called twice: first with the generation fields (may replace them, as before), then with the request exactly as forwarded upstream. The second call is read-only: a returned replacement is ignored. Errors thrown by either call are swallowed. |
+| `onPayload` option | Called twice: first with the generation fields (may replace them, as before), then with the request exactly as forwarded upstream. The second call is read-only: a returned replacement is ignored. An error thrown by the first call fails the request, as before; errors from the second are swallowed. |
 
 ## Troubleshooting
 
