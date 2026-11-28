@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, test } from "node:test";
 import { type AssistantMessage, type Message, normalizeContext, Type } from "@earendil-works/pi-ai";
 import { API, BASE_URL, PROVIDER, STATIC_MODELS } from "../src/catalog.ts";
-import { streamClaudeCode } from "../src/stream.ts";
+import { keepWarm, streamClaudeCode } from "../src/stream.ts";
 import { fakeUpstream, type Script, textAnswer, toolAnswer } from "./fixtures/upstream.ts";
 
 const FAKE = new URL("./fixtures/fake-claude.mjs", import.meta.url).pathname;
@@ -278,5 +278,24 @@ test("onPayload cannot replace the forwarded body, and its errors never fail the
 	for (const onPayload of [() => { throw new Error("meter down"); }, async () => { throw new Error("meter down"); }]) {
 		const { message } = await run({ events: textAnswer("ok") }, [user("a")], { onPayload });
 		assert.equal(message.stopReason, "stop", message.errorMessage ?? "");
+	}
+});
+
+test("keepWarm re-sends the next call's cached prefix with one output token", async () => {
+	const transcript: Message[] = [user("first"), reply("hello")];
+	const upstream = await fakeUpstream({ events: textAnswer("x", { input_tokens: 3, output_tokens: 1 }) });
+	try {
+		const env = { CLAUDE_SUBSCRIPTION_COMMAND: FAKE, CLAUDE_SUBSCRIPTION_UPSTREAM: upstream.url };
+		const warm = await keepWarm(model, normalizeContext({ systemPrompt: "You are pi.", tools, messages: transcript }), { reasoning: "high", env });
+		assert.notEqual(warm.stopReason, "error", warm.errorMessage ?? "");
+		assert.equal(warm.usage.output, 1);
+		const next = await run({ events: textAnswer("ok") }, [...transcript, user("second")], { reasoning: "high" });
+		const [ping, real] = [JSON.parse(upstream.bodies[0]), JSON.parse(next.upstream.bodies[0])];
+		assert.equal(ping.max_tokens, 1);
+		assert.deepEqual(ping.messages.slice(0, 2), real.messages.slice(0, 2), "same prefix up to the history breakpoint");
+		assert.deepEqual(ping.messages[1].content[0].cache_control, { type: "ephemeral", ttl: "1h" });
+		for (const key of ["system", "tools", "thinking", "output_config"]) assert.deepEqual(ping[key], real[key], key);
+	} finally {
+		await upstream.close();
 	}
 });

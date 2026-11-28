@@ -11,6 +11,9 @@ import { discoverModels } from "./src/discover.ts";
 import { authStatus, INSTALL_HINT, LOGIN_HINT, resolveClaude } from "./src/native.ts";
 import { streamClaudeCode } from "./src/stream.ts";
 
+/** For hosts that call the provider directly instead of loading the extension (e.g. pi-durable). */
+export { keepWarm, streamClaudeCode } from "./src/stream.ts";
+
 export default function (pi: ExtensionAPI) {
 	pi.registerProvider(PROVIDER, {
 		name: "Claude Subscription (Claude Code)",

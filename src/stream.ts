@@ -14,6 +14,7 @@ import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
 	calculateCost,
+	type Message,
 	contentText,
 	createAssistantMessageEventStream,
 	type Model,
@@ -205,18 +206,45 @@ function emptyOutput(model: Model<Api>): AssistantMessage {
 export function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions = {}): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 	const output = emptyOutput(model);
-	run(model, context, options, stream, output).catch((error: unknown) => {
-		for (const block of output.content as Live[]) seal(block);
-		output.stopReason = options.signal?.aborted ? "aborted" : "error";
-		output.errorMessage = options.signal?.aborted ? "Request was aborted" : error instanceof Error ? error.message : String(error);
-		stream.push({ type: "error", reason: output.stopReason, error: output });
-		stream.end();
-	});
+	run(model, context, options, stream, output).catch((error: unknown) => fail(error, options, stream, output));
 	return stream;
 }
 
-async function run(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions, stream: AssistantMessageEventStream, output: AssistantMessage): Promise<void> {
+function fail(error: unknown, options: SimpleStreamOptions, stream: AssistantMessageEventStream, output: AssistantMessage): void {
+	for (const block of output.content as Live[]) seal(block);
+	output.stopReason = options.signal?.aborted ? "aborted" : "error";
+	output.errorMessage = options.signal?.aborted ? "Request was aborted" : error instanceof Error ? error.message : String(error);
+	stream.push({ type: "error", reason: output.stopReason, error: output });
+	stream.end();
+}
+
+/**
+ * Refreshes the prompt cache for the next `streamSimple` call on `context` and returns the
+ * one-token answer (its `usage` is the cost). Pass the options the next call will use: thinking,
+ * tools and `cacheRetention` must match or the cached history is not reused. A transcript ending
+ * in an assistant turn gets a one-character user turn after it; the cached prefix ends before
+ * that. No scheduling: the caller decides when.
+ */
+export function keepWarm(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions = {}): Promise<AssistantMessage> {
+	const messages = context.messages;
+	const ping: Message = { role: "user", content: ".", timestamp: Date.now() };
+	const warm = messages.at(-1)?.role === "assistant" ? ({ ...context, messages: [...messages, ping] } as TranscriptContext) : context;
+	const stream = createAssistantMessageEventStream();
+	const output = emptyOutput(model);
+	run(model, warm, options, stream, output, true).catch((error: unknown) => fail(error, options, stream, output));
+	return stream.result();
+}
+
+/** Smallest output the API accepts for this body: one token, or one past a fixed thinking budget. */
+function minimalOutput(extraBody: string): { extraBody: string; maxTokens: number } {
+	const body = JSON.parse(extraBody);
+	const maxTokens = body.thinking?.type === "enabled" ? body.thinking.budget_tokens + 1 : 1;
+	return { extraBody: JSON.stringify({ ...body, max_tokens: maxTokens }), maxTokens };
+}
+
+async function run(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions, stream: AssistantMessageEventStream, output: AssistantMessage, warm = false): Promise<void> {
 	const prepared = prepare(model, context, options);
+	if (warm) Object.assign(prepared, minimalOutput(prepared.extraBody));
 	const { frames, system } = prepared;
 	let extraBody = prepared.extraBody;
 
