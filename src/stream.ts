@@ -26,7 +26,7 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { nativeModel } from "./catalog.ts";
-import { PREFIX, prepare, SERVER } from "./history.ts";
+import { PREFIX, type Prepared, prepare, SERVER } from "./history.ts";
 import { BASE_ARGS, childEnv, INSTALL_HINT, killTree, resolveClaude, spawnNative, workDir } from "./native.ts";
 import { CACHE_TTLS, type CacheTtl, Relay, type SseEvent } from "./relay.ts";
 
@@ -228,28 +228,36 @@ export function keepWarm(model: Model<Api>, context: TranscriptContext, options:
 	const warm = messages.at(-1)?.role === "assistant" ? ({ ...context, messages: [...messages, ping] } as TranscriptContext) : context;
 	const stream = createAssistantMessageEventStream();
 	const output = emptyOutput(model);
-	run(model, warm, options, stream, output, true).catch((error: unknown) => fail(error, options, stream, output));
+	run(model, warm, options, stream, output, minimalOutput).catch((error: unknown) => fail(error, options, stream, output));
 	return stream.result();
 }
 
 /** Smallest output the API accepts for this body: one token, or one past a fixed thinking budget. */
-function minimalOutput(extraBody: string): { extraBody: string; maxTokens: number } {
+function minimalOutput({ extraBody }: Prepared): Pick<Prepared, "extraBody" | "maxTokens"> {
 	const body = JSON.parse(extraBody);
 	const maxTokens = body.thinking?.type === "enabled" ? body.thinking.budget_tokens + 1 : 1;
 	return { extraBody: JSON.stringify({ ...body, max_tokens: maxTokens }), maxTokens };
 }
 
-async function run(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions, stream: AssistantMessageEventStream, output: AssistantMessage, warm = false): Promise<void> {
-	const prepared = prepare(model, context, options);
-	if (warm) Object.assign(prepared, minimalOutput(prepared.extraBody));
+/** Generation fields and output cap for the request, replacing what `prepare` derived. */
+type OutputOverride = (prepared: Prepared) => Pick<Prepared, "extraBody" | "maxTokens">;
+
+/** `options.onPayload`, with a throw or rejection read as "no replacement". */
+function payloadHook(options: SimpleStreamOptions, model: Model<Api>, payload: () => unknown): Promise<unknown> {
+	return Promise.resolve()
+		.then(() => options.onPayload?.(payload(), model))
+		.catch(() => undefined);
+}
+
+async function run(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions, stream: AssistantMessageEventStream, output: AssistantMessage, override?: OutputOverride): Promise<void> {
+	const derived = prepare(model, context, options);
+	const prepared = override ? { ...derived, ...override(derived) } : derived;
 	const { frames, system } = prepared;
 	let extraBody = prepared.extraBody;
 
 	// Instrumentation hook shared with built-in providers: inspect or replace the generation fields.
 	// A throwing hook is ignored; the forwarded body is reported again, read-only, from the relay.
-	const replaced = await Promise.resolve()
-		.then(() => options.onPayload?.(JSON.parse(extraBody), model))
-		.catch(() => undefined);
+	const replaced = await payloadHook(options, model, () => JSON.parse(extraBody));
 	if (replaced !== undefined) extraBody = JSON.stringify(replaced);
 
 	const env = { ...process.env, ...(options.env ?? {}) };
@@ -269,11 +277,7 @@ async function run(model: Model<Api>, context: TranscriptContext, options: Simpl
 		cacheTtl: cacheTtl(options, env),
 		onForward: (body) => {
 			// Metering: the body exactly as forwarded. Read-only; a returned replacement is ignored.
-			if (options.onPayload) {
-				Promise.resolve()
-					.then(() => options.onPayload?.(JSON.parse(body.toString("utf8")), model))
-					.catch(() => {});
-			}
+			if (options.onPayload) void payloadHook(options, model, () => JSON.parse(body.toString("utf8")));
 			// Debug only: CLAUDE_SUBSCRIPTION_AUDIT_DIR keeps the exact outbound bodies (full prompts) on disk.
 			if (audit) {
 				const file = join(audit, `request-${Date.now()}-${process.pid}.json`);
