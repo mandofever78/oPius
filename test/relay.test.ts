@@ -112,16 +112,19 @@ test("ttl none adds no history breakpoint and forwards the body byte for byte", 
 	assert.equal(prepareBody(body, "none"), body);
 });
 
-test("ttl 1h is the default and matches today's breakpoint", () => {
+test("ttl 1h is the default and marks history 1h", () => {
 	assert.deepEqual(prepared(history(), "1h"), prepared(history()));
 	assert.deepEqual(JSON.parse(prepared(history()).toString("utf8")).messages[1].content[0].cache_control, EPHEMERAL);
 });
 
-test("ttl 5m marks history with the API's default lifetime and keeps every breakpoint at 5m", () => {
-	const sent = JSON.parse(prepared(history(), "5m").toString("utf8"));
+test("ttl 5m marks history with the API's default lifetime; only later markers drop to 5m", () => {
+	const request = { ...history(), tools: [{ name: "t", input_schema: {}, cache_control: EPHEMERAL }] };
+	const sent = JSON.parse(prepared(request, "5m").toString("utf8"));
 	assert.deepEqual(sent.messages[1].content[0].cache_control, { type: "ephemeral" });
-	// A 1h entry after a 5m one is rejected upstream, so native's own markers drop to 5m too.
-	assert.deepEqual(sent.system[0].cache_control, { type: "ephemeral" });
+	// 1h ahead of the 5m breakpoint is allowed and keeps native's system and tools cached for 1h.
+	assert.deepEqual(sent.tools[0].cache_control, EPHEMERAL);
+	assert.deepEqual(sent.system[0].cache_control, EPHEMERAL);
+	// A 1h entry after a 5m one is rejected upstream.
 	assert.deepEqual(sent.messages[3].content[0].cache_control, { type: "ephemeral" });
 });
 

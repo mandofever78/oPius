@@ -29,7 +29,7 @@ const MAX_BREAKPOINTS = 4;
  * read everything up to it. Anything unexpected passes through untouched.
  */
 export function addHistoryBreakpoint(body: Buffer): Buffer {
-	return rewrite(body, markHistory);
+	return rewrite(body, (request) => markHistory(request, "1h"));
 }
 
 /** Parse, apply each edit, and re-serialize only when one changed something. */
@@ -92,42 +92,34 @@ function dropAccountEmail(request: any): boolean {
 	return changed;
 }
 
-/** History cache lifetime: `none` adds no breakpoint, `5m` is the API default, `1h` costs 2x to write. */
-export type CacheTtl = "none" | "5m" | "1h";
+/** History cache lifetimes: `none` adds no breakpoint, `5m` is the API default, `1h` costs 2x to write. */
+export const CACHE_TTLS = ["none", "5m", "1h"] as const;
+export type CacheTtl = (typeof CACHE_TTLS)[number];
 
 /** The admitted body as forwarded: account email removed, history breakpoint added at `ttl`. */
 export function prepareBody(body: Buffer, ttl: CacheTtl = "1h"): Buffer {
 	if (ttl === "none") return rewrite(body, dropAccountEmail);
-	if (ttl === "5m") return rewrite(body, dropAccountEmail, markHistory, shortenMarkers);
-	return rewrite(body, dropAccountEmail, markHistory);
+	return rewrite(body, dropAccountEmail, (request) => markHistory(request, ttl));
 }
 
-const markers = (request: any): any[] => {
-	const messages = blocks(request?.messages);
+/** Blocks carrying a cache marker, in prompt order: system and tools, then message content. */
+function markers(request: any, messages: any[] = blocks(request?.messages)): any[] {
 	const content = messages.flatMap((m) => blocks(m.content));
 	return [...blocks(request?.system), ...blocks(request?.tools), ...content, ...content.flatMap((b) => blocks(b.content))].filter((b) => b.cache_control);
-};
-
-/**
- * The API rejects a 1h entry after a 5m one, and native marks its own blocks 1h; every marker drops
- * to the 5m default so the short history breakpoint stays valid.
- */
-function shortenMarkers(request: any): boolean {
-	let changed = false;
-	for (const b of markers(request)) {
-		if (b.cache_control.ttl === undefined) continue;
-		delete b.cache_control.ttl;
-		changed = true;
-	}
-	return changed;
 }
 
-function markHistory(request: any): boolean {
+/**
+ * Marks the last assistant block at `ttl`. The API rejects a 1h entry after a 5m one, so a 5m
+ * breakpoint also shortens native's later markers; its 1h markers on system and tools stay.
+ */
+function markHistory(request: any, ttl: "5m" | "1h"): boolean {
 	const messages = blocks(request?.messages);
 	if (markers(request).length >= MAX_BREAKPOINTS) return false;
-	const last = blocks(messages.findLast((m) => m.role === "assistant")?.content).findLast((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
+	const at = messages.findLastIndex((m) => m.role === "assistant");
+	const last = blocks(messages[at]?.content).findLast((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
 	if (!last || last.cache_control) return false;
-	last.cache_control = { type: "ephemeral", ttl: "1h" };
+	last.cache_control = ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+	if (ttl === "5m") for (const b of markers({}, messages.slice(at + 1))) delete b.cache_control.ttl;
 	return true;
 }
 
