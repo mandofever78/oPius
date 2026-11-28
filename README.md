@@ -188,10 +188,21 @@ Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 | `CLAUDE_SUBSCRIPTION_COMMAND` | Path or name of the `claude` executable (default: `claude` on `PATH`) |
 | `CLAUDE_SUBSCRIPTION_CONFIG_DIR` | Claude Code config directory used only by this extension |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Long-lived subscription token from `claude setup-token` |
+| `CLAUDE_SUBSCRIPTION_CACHE_TTL` | History cache breakpoint lifetime: `none`, `5m` or `1h` (default `1h`) |
 | `CLAUDE_SUBSCRIPTION_AUDIT_DIR` | Debug only: save each outbound request body |
 | `CLAUDE_SUBSCRIPTION_UPSTREAM` | Tests only: loopback HTTP fixture instead of `api.anthropic.com` |
 
 The default idle timeout is 180 s. It resets on any output, and pi's `timeoutMs` overrides it.
+
+### Caching and metering
+
+For hosts that call `streamSimple` directly (they can import `streamClaudeCode` and `keepWarm` from the package):
+
+| Control | Behaviour |
+| --- | --- |
+| `cacheRetention` option | Per call: `none` adds no history breakpoint, `short` uses the API's 5-minute default, `long` uses 1 h. Overrides `CLAUDE_SUBSCRIPTION_CACHE_TTL`. With `5m`, Claude Code's own 1 h markers drop to 5 min too, since the API rejects a 1 h entry after a 5 min one. |
+| `keepWarm(model, context, options)` | Sends the next call's cached prefix with `max_tokens: 1` and resolves to the one-token answer; its `usage` is the cost. Pass the same options as the next real call (thinking, tools, `cacheRetention`). Mostly cache read; a transcript ending in an assistant turn also writes that turn once. oPius runs no timers: schedule it yourself inside the TTL. |
+| `onPayload` option | Called twice: first with the generation fields (may replace them, as before), then with the request exactly as forwarded upstream. The second call is read-only: a returned replacement is ignored. Errors thrown by either call are swallowed. |
 
 ## Troubleshooting
 
@@ -209,7 +220,7 @@ The default idle timeout is 180 s. It resets on any output, and pi's `timeoutMs`
 - **Native Windows is not supported.** Node cannot launch the npm `claude.cmd` shim without a shell. Use WSL, or point `CLAUDE_SUBSCRIPTION_COMMAND` at a native `claude.exe`.
 - Assistant prefill is not supported.
 - Tool names must match `[A-Za-z0-9_-]{1,50}`.
-- Caching: the first call after start and the latest tool result are written to cache once; history up to the previous assistant turn is read from cache.
+- Caching: the first call after start and the latest tool result are written to cache once; history up to the previous assistant turn is read from cache. See [Caching and metering](#caching-and-metering).
 - Claude Code adds its own context to each request (its SDK preamble, environment details, and account reminders that include your email address).
 
 ## Development
