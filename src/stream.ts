@@ -221,7 +221,10 @@ async function run(model: Model<Api>, context: TranscriptContext, options: Simpl
 	let extraBody = prepared.extraBody;
 
 	// Instrumentation hook shared with built-in providers: inspect or replace the generation fields.
-	const replaced = await options.onPayload?.(JSON.parse(extraBody), model);
+	// A throwing hook is ignored; the forwarded body is reported again, read-only, from the relay.
+	const replaced = await Promise.resolve()
+		.then(() => options.onPayload?.(JSON.parse(extraBody), model))
+		.catch(() => undefined);
 	if (replaced !== undefined) extraBody = JSON.stringify(replaced);
 
 	const env = { ...process.env, ...(options.env ?? {}) };
@@ -239,15 +242,21 @@ async function run(model: Model<Api>, context: TranscriptContext, options: Simpl
 		timeoutMs: idleMs,
 		tools: prepared.manifest,
 		cacheTtl: cacheTtl(options, env),
-		// Debug only: CLAUDE_SUBSCRIPTION_AUDIT_DIR keeps the exact outbound bodies (full prompts) on disk.
-		onForward: audit
-			? (body) => {
-					const file = join(audit, `request-${Date.now()}-${process.pid}.json`);
-					audited = mkdir(audit, { recursive: true, mode: 0o700 })
-						.then(() => writeFile(file, body, { mode: 0o600 }))
-						.catch(() => {});
-				}
-			: undefined,
+		onForward: (body) => {
+			// Metering: the body exactly as forwarded. Read-only; a returned replacement is ignored.
+			if (options.onPayload) {
+				Promise.resolve()
+					.then(() => options.onPayload?.(JSON.parse(body.toString("utf8")), model))
+					.catch(() => {});
+			}
+			// Debug only: CLAUDE_SUBSCRIPTION_AUDIT_DIR keeps the exact outbound bodies (full prompts) on disk.
+			if (audit) {
+				const file = join(audit, `request-${Date.now()}-${process.pid}.json`);
+				audited = mkdir(audit, { recursive: true, mode: 0o700 })
+					.then(() => writeFile(file, body, { mode: 0o600 }))
+					.catch(() => {});
+			}
+		},
 		onEvent: (event) => {
 			touch();
 			builder.event(event);

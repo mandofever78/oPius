@@ -260,3 +260,23 @@ test("concurrent calls with different retention do not cross", async () => {
 	const marks = await Promise.all([historyMark({ cacheRetention: "none" }), historyMark({ cacheRetention: "long" }), historyMark({ cacheRetention: "short" })]);
 	assert.deepEqual(marks, [undefined, { type: "ephemeral", ttl: "1h" }, { type: "ephemeral" }]);
 });
+
+const forwarded = (payloads: unknown[]) => payloads.filter((p: any) => Array.isArray(p?.messages));
+
+test("onPayload sees the body as forwarded upstream, after relay rewrites", async () => {
+	const payloads: unknown[] = [];
+	const { message, upstream } = await run({ events: textAnswer("ok") }, [user("first"), reply("hello"), user("second")], { onPayload: (p: unknown) => void payloads.push(p) });
+	assert.equal(message.stopReason, "stop", message.errorMessage ?? "");
+	assert.deepEqual(forwarded(payloads), [JSON.parse(upstream.bodies[0])]);
+	assert.doesNotMatch(JSON.stringify(payloads), /user@example\.com/);
+});
+
+test("onPayload cannot replace the forwarded body, and its errors never fail the call", async () => {
+	const replacing = await run({ events: textAnswer("ok") }, [user("a")], { onPayload: (p: any) => (p.messages ? { model: "other", messages: [] } : undefined) });
+	assert.equal(replacing.message.stopReason, "stop", replacing.message.errorMessage ?? "");
+	assert.equal(JSON.parse(replacing.upstream.bodies[0]).messages[0].content[0].text, "a");
+	for (const onPayload of [() => { throw new Error("meter down"); }, async () => { throw new Error("meter down"); }]) {
+		const { message } = await run({ events: textAnswer("ok") }, [user("a")], { onPayload });
+		assert.equal(message.stopReason, "stop", message.errorMessage ?? "");
+	}
+});
