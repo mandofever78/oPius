@@ -256,6 +256,11 @@ test("CLAUDE_SUBSCRIPTION_CACHE_TTL sets the default; cacheRetention still wins"
 	assert.deepEqual(await historyMark({ cacheRetention: "long", env: { CLAUDE_SUBSCRIPTION_CACHE_TTL: "none" } }), { type: "ephemeral", ttl: "1h" });
 });
 
+test("unknown cacheRetention and env values, prototype keys included, fall back to 1h", async () => {
+	assert.deepEqual(await historyMark({ cacheRetention: "toString" }), { type: "ephemeral", ttl: "1h" });
+	assert.deepEqual(await historyMark({ env: { CLAUDE_SUBSCRIPTION_CACHE_TTL: "constructor" } }), { type: "ephemeral", ttl: "1h" });
+});
+
 test("concurrent calls with different retention do not cross", async () => {
 	const marks = await Promise.all([historyMark({ cacheRetention: "none" }), historyMark({ cacheRetention: "long" }), historyMark({ cacheRetention: "short" })]);
 	assert.deepEqual(marks, [undefined, { type: "ephemeral", ttl: "1h" }, { type: "ephemeral" }]);

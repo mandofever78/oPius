@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { addHistoryBreakpoint, prepareBody, Relay, type SseEvent } from "../src/relay.ts";
+import { addHistoryBreakpoint, type CacheTtl, prepareBody, Relay, type SseEvent } from "../src/relay.ts";
 import { textAnswer } from "./fixtures/upstream.ts";
 
 /** Upstream that writes `body` verbatim as its SSE answer. */
@@ -105,7 +105,7 @@ const history = () => ({
 		{ role: "system", content: [{ type: "text", text: "reminder", cache_control: EPHEMERAL }] },
 	],
 });
-const prepared = (request: object, ttl?: "none" | "5m" | "1h") => prepareBody(Buffer.from(JSON.stringify(request)), ttl);
+const prepared = (request: object, ttl?: CacheTtl) => prepareBody(Buffer.from(JSON.stringify(request)), ttl);
 
 test("ttl none adds no history breakpoint and forwards the body byte for byte", () => {
 	const body = Buffer.from(JSON.stringify(history()));
