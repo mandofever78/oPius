@@ -6,8 +6,8 @@
  * - Inventory: an inert MCP endpoint lists pi's tools so native recognizes them; calls to it are
  *   denied, because only pi executes tools.
  * - Privacy: native's account-email context reminder is removed from the admitted body.
- * - Caching: the admitted body gains one history cache breakpoint (`addHistoryBreakpoint`) and is
- *   otherwise forwarded as Claude Code builds it.
+ * - Caching: the admitted body gains one history cache breakpoint (`prepareBody`); a 5m breakpoint
+ *   also shortens native's later markers. Otherwise it is forwarded as Claude Code builds it.
  *
  * Native authorization headers pass through memory to the upstream unchanged and are never logged.
  */

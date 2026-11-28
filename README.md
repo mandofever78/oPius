@@ -17,7 +17,7 @@ Pi + Claude Pro/Max Subscriptions on the official Claude Code CLI. Pi keeps its 
 
 - **Works with Claude Pro/Max Subscriptions. No extra usage billing required on Opus, Sonnet or Haiku.** It has no credentials of its own: it uses whatever login Claude Code already has and never reads, copies or prints Claude Code's credential files.
 - **One pi call, one upstream request.** A single-use loopback relay forwards exactly one Messages request per call and refuses native retries.
-- **Requests are barely touched.** The relay adds one cache breakpoint to the conversation history; otherwise bodies are forwarded as the CLI builds them, and Claude Code's identity headers are unchanged.
+- **Requests are barely touched.** The relay removes Claude Code's account-email reminder and adds one cache breakpoint to the conversation history (with `5m` retention it also shortens Claude Code's own markers after that breakpoint); otherwise bodies are forwarded as the CLI builds them, and Claude Code's identity headers are unchanged.
 - **Real streaming.** Text, thinking and tool-call deltas come straight from the upstream SSE stream.
 - **Subscription-safe environment.** API keys and backend overrides that would silently switch Claude Code to API billing are removed from its environment.
 
@@ -150,7 +150,7 @@ sequenceDiagram
     ext->>cc: spawn in a stable private working directory, own process group
     ext->>cc: replay history as stream-json frames
     cc->>relay: POST /v1/messages
-    relay->>api: forward (one history cache breakpoint added, headers unchanged)
+    relay->>api: forward (account email removed, history cache breakpoint added, headers unchanged)
     api-->>relay: SSE stream
     relay-->>ext: events stream to pi as they arrive
     relay-->>cc: same stream
@@ -175,6 +175,7 @@ sequenceDiagram
 | Unexpected tool calls | A tool call for anything outside pi's current tool list fails the request before it reaches pi. |
 | Accidental API billing | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_FOUNDRY_API_KEY`, `CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY` and `CLAUDE_CODE_EXTRA_BODY` are removed from Claude Code's environment. `/claude-subscription` warns about logins that aren't subscriptions. |
 | Upstream target | Must be HTTPS. Plain HTTP is accepted only for a loopback test fixture. |
+| Metering hook | The forwarded request body, including Claude Code's preamble and `metadata.user_id`, is handed to the host's `onPayload`. |
 
 > [!WARNING]
 > `CLAUDE_SUBSCRIPTION_AUDIT_DIR` writes every outbound request body, including your full prompts, to disk (mode `0600`). Use it only for debugging, and delete the files afterwards.
@@ -196,12 +197,12 @@ The default idle timeout is 180 s. It resets on any output, and pi's `timeoutMs`
 
 ### Caching and metering
 
-For hosts that call `streamSimple` directly (they can import `streamClaudeCode` and `keepWarm` from the package):
+For hosts that call `streamSimple` directly. Import `streamClaudeCode` and `keepWarm` from `opius/index.ts` through a loader that compiles TypeScript under `node_modules`, such as jiti (which pi uses); plain Node refuses to strip types there.
 
 | Control | Behaviour |
 | --- | --- |
-| `cacheRetention` option | Per call: `none` adds no history breakpoint, `short` uses the API's 5-minute default, `long` uses 1 h. Overrides `CLAUDE_SUBSCRIPTION_CACHE_TTL`. With `5m`, Claude Code's own 1 h markers drop to 5 min too, since the API rejects a 1 h entry after a 5 min one. |
-| `keepWarm(model, context, options)` | Sends the next call's cached prefix with `max_tokens: 1` and resolves to the one-token answer; its `usage` is the cost. Pass the same options as the next real call (thinking, tools, `cacheRetention`). Mostly cache read; a transcript ending in an assistant turn also writes that turn once. oPius runs no timers: schedule it yourself inside the TTL. |
+| `cacheRetention` option | Per call: `none` adds no history breakpoint, `short` uses the API's 5-minute default, `long` uses 1 h. Overrides `CLAUDE_SUBSCRIPTION_CACHE_TTL`. With `5m`, Claude Code's own 1 h markers after the history breakpoint drop to 5 min, since the API rejects a 1 h entry after a 5 min one; its markers on the system prompt and tools keep 1 h. |
+| `keepWarm(model, context, options)` | Sends the next call's cached prefix with `max_tokens: 1` and resolves to the short answer; its `usage` is the cost. Pass the same options as the next real call (thinking, tools, `cacheRetention`). Mostly cache read; a transcript ending in an assistant turn also writes that turn once. With fixed-budget thinking (Haiku 4.5 with `reasoning` set) the cap is the budget + 1, so a ping can spend the whole thinking budget in output; dropping thinking would change the cache key instead. oPius runs no timers: schedule it yourself inside the TTL. |
 | `onPayload` option | Called twice: first with the generation fields (may replace them, as before), then with the request exactly as forwarded upstream. The second call is read-only: a returned replacement is ignored. Errors thrown by either call are swallowed. |
 
 ## Troubleshooting
@@ -234,7 +235,7 @@ node test/live.ts [model-id]    # live test: two real requests against your subs
 
 | Path | Responsibility |
 | --- | --- |
-| `index.ts` | Provider registration and `/claude-subscription` |
+| `index.ts` | Provider registration, `/claude-subscription`, and `streamClaudeCode`/`keepWarm` exports for direct callers |
 | `src/stream.ts` | pi `streamSimple`: process lifecycle and event mapping |
 | `src/history.ts` | pi transcript → stream-json frames and generation fields |
 | `src/relay.ts` | Single-admission relay and inert MCP endpoint |
